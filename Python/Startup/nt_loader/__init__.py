@@ -68,8 +68,23 @@ def _import_tank_with_pyside6():
             saved[key] = sys.modules.pop(key)
 
     try:
-        import tank  # noqa: F401 - triggers QtImporter which now uses PySide6
-        print("[NukeTimelineLoader] tank imported successfully via PySide6 path")
+        import tank  # noqa: F401 - triggers QtImporter
+        print("[NukeTimelineLoader] tank imported via PySide6 path")
+
+        # QtImporter may fail silently on BOTH PySide2 and PySide6 paths
+        # (e.g. missing pyside6_patcher), leaving QtCore = None.
+        # Fix: inject PySide6 modules directly into qt_abstraction.
+        try:
+            import tank.authentication.ui.qt_abstraction as _qa
+            if _qa.QtCore is None:
+                from PySide6 import QtCore, QtGui, QtNetwork
+                _qa.QtCore = QtCore
+                _qa.QtGui = QtGui
+                _qa.QtNetwork = QtNetwork
+                print("[NukeTimelineLoader] Patched qt_abstraction with PySide6 modules")
+        except ImportError:
+            pass
+
     except Exception as exc:
         print(f"[NukeTimelineLoader] WARNING: tank pre-import failed: {exc}")
     finally:
