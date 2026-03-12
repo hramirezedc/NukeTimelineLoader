@@ -12,6 +12,10 @@ import site
 
 
 # __INTEGRATE__ Set the alternate site-packages location
+# For Nuke/Hiero 15.x:
+# alternate_location = "C:/Program Files/Nuke15.1v1/pythonextensions/site-packages"
+# For Nuke/Hiero 17.x (uses Python 3.11+):
+# alternate_location = "C:/Program Files/Nuke17.0v1/pythonextensions/site-packages"
 alternate_location = "C:/Program Files/Nuke15.1v1/pythonextensions/site-packages"
 
 # Ensure the alternate location exists
