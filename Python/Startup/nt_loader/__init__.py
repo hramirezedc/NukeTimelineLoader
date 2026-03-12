@@ -130,6 +130,7 @@ _REQUIRED_PACKAGES = {
     "PIL": "pillow",
     "fileseq": "fileseq",
     "qtpy": "qtpy",
+    "cv2": "opencv-python",
     "tank_vendor": "git+https://github.com/shotgunsoftware/tk-core.git@v0.21.7",
 }
 
