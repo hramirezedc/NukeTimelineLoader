@@ -10,10 +10,12 @@ import sys
 import os
 
 # Dependencies that must be importable for nt_loader to work.
+# Format: { "import_name": "pip_name_or_url" }
 _REQUIRED_PACKAGES = {
     "requests": "requests",
     "PIL": "pillow",
     "fileseq": "fileseq",
+    "tank_vendor": "git+https://github.com/shotgunsoftware/tk-core.git@v0.21.7",
 }
 
 
