@@ -77,9 +77,30 @@ def _import_tank_with_pyside6():
         try:
             import tank.authentication.ui.qt_abstraction as _qa
             if _qa.QtCore is None:
-                from PySide6 import QtCore, QtGui, QtNetwork
+                from PySide6 import QtCore, QtGui, QtWidgets, QtNetwork
+                # tk-core expects a PySide1-style API where QtGui contains
+                # everything from QtWidgets + some classes from QtCore.
+                # The pyside2/6_patcher normally does this, but since both
+                # patchers failed, we merge the modules ourselves.
+                import types
+                _merged_gui = types.ModuleType("PySide6.QtGui._merged")
+                # Start with all QtGui attributes
+                for attr in dir(QtGui):
+                    if not attr.startswith("_"):
+                        setattr(_merged_gui, attr, getattr(QtGui, attr))
+                # Add all QtWidgets classes (PySide1 had these in QtGui)
+                for attr in dir(QtWidgets):
+                    if not attr.startswith("_"):
+                        setattr(_merged_gui, attr, getattr(QtWidgets, attr))
+                # Add QtCore classes that PySide1 exposed via QtGui
+                for attr in ("QSortFilterProxyModel", "QItemSelectionModel",
+                             "QStringListModel", "QAbstractProxyModel",
+                             "QItemSelection", "QItemSelectionRange"):
+                    if hasattr(QtCore, attr):
+                        setattr(_merged_gui, attr, getattr(QtCore, attr))
+
                 _qa.QtCore = QtCore
-                _qa.QtGui = QtGui
+                _qa.QtGui = _merged_gui
                 _qa.QtNetwork = QtNetwork
                 print("[NukeTimelineLoader] Patched qt_abstraction with PySide6 modules")
         except ImportError:
