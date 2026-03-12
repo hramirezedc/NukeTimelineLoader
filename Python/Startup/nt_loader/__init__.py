@@ -5,35 +5,12 @@ Ensures required third-party dependencies (e.g. requests) are available
 before the rest of the package is imported. This handles environments like
 Hiero/Nuke 17+ where the bundled Python may not include these packages.
 
-Also provides compatibility shims so that tk-core (built for PySide2/Qt5)
-works correctly under Hiero 17+ (PySide6/Qt6).
+Also pre-imports tk-core (tank) using PySide6 natively so its QtImporter
+picks the correct code path, and patches Qt resource stubs removed in Qt6.
 """
 
 import sys
 import os
-
-# ---------------------------------------------------------------------------
-# shiboken2 → shiboken6 shim  (must run before any tk-core / tank import)
-# ---------------------------------------------------------------------------
-def _install_shiboken2_shim():
-    """Alias shiboken2 to shiboken6.
-
-    tk-core's QtImporter tries to 'import shiboken2' when using the PySide2
-    code path.  Hiero 17+ ships shiboken6 (not shiboken2).  Without this
-    shim, the PySide2 path fails, AND the PySide6 fallback may also fail,
-    leaving QtCore = None.
-    """
-    if "shiboken2" in sys.modules:
-        return
-
-    try:
-        import shiboken6
-        sys.modules["shiboken2"] = shiboken6
-    except ImportError:
-        pass
-
-
-_install_shiboken2_shim()
 
 # ---------------------------------------------------------------------------
 # Qt5 resource function stubs  (must run before any tk-core / tank import)
@@ -43,20 +20,10 @@ def _patch_qt_resource_functions():
 
     tk-core's compiled Qt resource files call these functions which existed
     in PySide2 (Qt5) but were removed in PySide6 (Qt6).  We add no-op stubs
-    directly on PySide6.QtCore AND on any PySide2.QtCore shim already in
-    sys.modules (e.g. from menu.py).  This is safe to call multiple times.
+    directly on PySide6.QtCore.  This is safe to call multiple times.
     """
     _stub = lambda *args, **kwargs: True
 
-    for mod_name in ("PySide6.QtCore", "PySide2.QtCore"):
-        mod = sys.modules.get(mod_name)
-        if mod is not None:
-            if not hasattr(mod, "qRegisterResourceData"):
-                mod.qRegisterResourceData = _stub
-            if not hasattr(mod, "qUnregisterResourceData"):
-                mod.qUnregisterResourceData = _stub
-
-    # Also patch the real PySide6.QtCore if not yet in sys.modules
     try:
         from PySide6 import QtCore as _qtcore
         if not hasattr(_qtcore, "qRegisterResourceData"):
@@ -66,17 +33,57 @@ def _patch_qt_resource_functions():
     except ImportError:
         pass
 
-    # Ensure PySide2 shim has __version__ if it exists (tk-core reads it)
-    pyside2 = sys.modules.get("PySide2")
-    if pyside2 is not None and not hasattr(pyside2, "__version__"):
-        try:
-            import PySide6
-            pyside2.__version__ = PySide6.__version__
-        except ImportError:
-            pyside2.__version__ = "6.0.0"
+    # Also patch any PySide2.QtCore shim already in sys.modules
+    mod = sys.modules.get("PySide2.QtCore")
+    if mod is not None:
+        if not hasattr(mod, "qRegisterResourceData"):
+            mod.qRegisterResourceData = _stub
+        if not hasattr(mod, "qUnregisterResourceData"):
+            mod.qUnregisterResourceData = _stub
 
 
 _patch_qt_resource_functions()
+
+
+# ---------------------------------------------------------------------------
+# Pre-import tank using PySide6 natively
+# ---------------------------------------------------------------------------
+def _import_tank_with_pyside6():
+    """Pre-import tank while PySide2 shim is hidden from sys.modules.
+
+    tk-core's QtImporter tries PySide2 first, then PySide6.  The PySide2
+    shim from menu.py makes the PySide2 path succeed initially, but then
+    pyside2_patcher fails because the underlying modules are PySide6
+    (e.g. QTextCodec was removed in Qt6).
+
+    By temporarily hiding the PySide2 shim, QtImporter skips the PySide2
+    path and uses its native PySide6 support (pyside6_patcher) instead.
+    Once tank is imported, we restore the PySide2 shim for any other code
+    that may depend on it.
+    """
+    # Save and temporarily remove PySide2/shiboken2 shim entries
+    saved = {}
+    for key in list(sys.modules):
+        if key == "PySide2" or key.startswith("PySide2.") or key == "shiboken2":
+            saved[key] = sys.modules.pop(key)
+
+    try:
+        import tank  # noqa: F401 - triggers QtImporter which now uses PySide6
+        print("[NukeTimelineLoader] tank imported successfully via PySide6 path")
+    except Exception as exc:
+        print(f"[NukeTimelineLoader] WARNING: tank pre-import failed: {exc}")
+    finally:
+        # Restore PySide2 shim for other code that depends on it
+        sys.modules.update(saved)
+
+
+# Only run on PySide6 environments (Hiero 17+) where the PySide2 shim exists
+if "PySide2" in sys.modules:
+    try:
+        import PySide6  # noqa: F401 - check if we're in a PySide6 environment
+        _import_tank_with_pyside6()
+    except ImportError:
+        pass
 
 # ---------------------------------------------------------------------------
 # Auto-install missing dependencies
