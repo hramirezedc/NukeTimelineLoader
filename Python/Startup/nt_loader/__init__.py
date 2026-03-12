@@ -5,12 +5,35 @@ Ensures required third-party dependencies (e.g. requests) are available
 before the rest of the package is imported. This handles environments like
 Hiero/Nuke 17+ where the bundled Python may not include these packages.
 
-Also patches PySide6.QtCore with Qt5 resource stubs (qRegisterResourceData)
-that tk-core expects but PySide6 removed.
+Also provides compatibility shims so that tk-core (built for PySide2/Qt5)
+works correctly under Hiero 17+ (PySide6/Qt6).
 """
 
 import sys
 import os
+
+# ---------------------------------------------------------------------------
+# shiboken2 → shiboken6 shim  (must run before any tk-core / tank import)
+# ---------------------------------------------------------------------------
+def _install_shiboken2_shim():
+    """Alias shiboken2 to shiboken6.
+
+    tk-core's QtImporter tries to 'import shiboken2' when using the PySide2
+    code path.  Hiero 17+ ships shiboken6 (not shiboken2).  Without this
+    shim, the PySide2 path fails, AND the PySide6 fallback may also fail,
+    leaving QtCore = None.
+    """
+    if "shiboken2" in sys.modules:
+        return
+
+    try:
+        import shiboken6
+        sys.modules["shiboken2"] = shiboken6
+    except ImportError:
+        pass
+
+
+_install_shiboken2_shim()
 
 # ---------------------------------------------------------------------------
 # Qt5 resource function stubs  (must run before any tk-core / tank import)
@@ -42,6 +65,15 @@ def _patch_qt_resource_functions():
             _qtcore.qUnregisterResourceData = _stub
     except ImportError:
         pass
+
+    # Ensure PySide2 shim has __version__ if it exists (tk-core reads it)
+    pyside2 = sys.modules.get("PySide2")
+    if pyside2 is not None and not hasattr(pyside2, "__version__"):
+        try:
+            import PySide6
+            pyside2.__version__ = PySide6.__version__
+        except ImportError:
+            pyside2.__version__ = "6.0.0"
 
 
 _patch_qt_resource_functions()
