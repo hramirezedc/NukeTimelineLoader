@@ -5,66 +5,46 @@ Ensures required third-party dependencies (e.g. requests) are available
 before the rest of the package is imported. This handles environments like
 Hiero/Nuke 17+ where the bundled Python may not include these packages.
 
-Also installs a PySide2 → PySide6 compatibility shim so that tk-core
-(which expects PySide2) works correctly under Hiero 17+ (PySide6).
+Also patches PySide6.QtCore with Qt5 resource stubs (qRegisterResourceData)
+that tk-core expects but PySide6 removed.
 """
 
 import sys
 import os
 
 # ---------------------------------------------------------------------------
-# PySide2 → PySide6 shim  (must run before any tk-core / tank import)
+# Qt5 resource function stubs  (must run before any tk-core / tank import)
 # ---------------------------------------------------------------------------
-def _install_pyside2_shim():
-    """Create a fake 'PySide2' package that redirects to PySide6.
+def _patch_qt_resource_functions():
+    """Ensure qRegisterResourceData / qUnregisterResourceData exist.
 
-    tk-core compiles Qt resource files against PySide2, calling
-    PySide2.QtCore.qRegisterResourceData at import time.  Hiero 17+
-    ships only PySide6, so we need this shim to satisfy those imports.
+    tk-core's compiled Qt resource files call these functions which existed
+    in PySide2 (Qt5) but were removed in PySide6 (Qt6).  We add no-op stubs
+    directly on PySide6.QtCore AND on any PySide2.QtCore shim already in
+    sys.modules (e.g. from menu.py).  This is safe to call multiple times.
     """
-    if "PySide2" in sys.modules:
-        return  # already available (Hiero 16 or earlier)
+    _stub = lambda *args, **kwargs: True
 
+    for mod_name in ("PySide6.QtCore", "PySide2.QtCore"):
+        mod = sys.modules.get(mod_name)
+        if mod is not None:
+            if not hasattr(mod, "qRegisterResourceData"):
+                mod.qRegisterResourceData = _stub
+            if not hasattr(mod, "qUnregisterResourceData"):
+                mod.qUnregisterResourceData = _stub
+
+    # Also patch the real PySide6.QtCore if not yet in sys.modules
     try:
-        import PySide6  # noqa: F401 – just checking availability
+        from PySide6 import QtCore as _qtcore
+        if not hasattr(_qtcore, "qRegisterResourceData"):
+            _qtcore.qRegisterResourceData = _stub
+        if not hasattr(_qtcore, "qUnregisterResourceData"):
+            _qtcore.qUnregisterResourceData = _stub
     except ImportError:
-        return  # neither PySide2 nor PySide6 – nothing we can do
-
-    import types
-    import importlib
-
-    # Top-level fake PySide2 package
-    pyside2 = types.ModuleType("PySide2")
-    pyside2.__path__ = []
-    pyside2.__package__ = "PySide2"
-    sys.modules["PySide2"] = pyside2
-
-    # Map common PySide2 sub-modules to their PySide6 equivalents
-    _submodules = [
-        "QtCore", "QtGui", "QtWidgets", "QtNetwork", "QtWebEngineWidgets",
-        "QtSvg", "QtOpenGL", "QtPrintSupport", "QtUiTools",
-    ]
-    for name in _submodules:
-        target = f"PySide6.{name}"
-        try:
-            real = importlib.import_module(target)
-            alias = f"PySide2.{name}"
-            sys.modules[alias] = real
-            setattr(pyside2, name, real)
-        except ImportError:
-            pass
-
-    # Ensure qRegisterResourceData / qUnregisterResourceData exist on QtCore.
-    # In PySide6 these moved or were removed; provide no-op stubs so compiled
-    # resource files from tk-core don't crash on import.
-    from PySide6 import QtCore as _QtCore
-    if not hasattr(_QtCore, "qRegisterResourceData"):
-        _QtCore.qRegisterResourceData = lambda *args, **kwargs: None
-    if not hasattr(_QtCore, "qUnregisterResourceData"):
-        _QtCore.qUnregisterResourceData = lambda *args, **kwargs: None
+        pass
 
 
-_install_pyside2_shim()
+_patch_qt_resource_functions()
 
 # ---------------------------------------------------------------------------
 # Auto-install missing dependencies
