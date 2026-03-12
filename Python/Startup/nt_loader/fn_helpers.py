@@ -201,9 +201,9 @@ def convert_media_path_to_map(path):
                 converted = pattern.sub(replacement, path)
                 # Final normalization of the complete path
                 return os.path.normpath(converted)
-        raise Exception(
-            "Error: fn_globals.py:SG_MEDIA_PATH_MAP set to unsupported OS for path substitution"
-        )
+        # No mapping match found — return original path unchanged
+        # This is expected for localized/downloaded files that are already local paths
+        return path
     else:
         return path
 

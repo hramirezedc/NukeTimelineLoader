@@ -10,7 +10,7 @@ import os
 # __INTEGRATE__ Globals for Connection to Shotgrid/Flow
 # ---
 # setup global for studio SG/Flow site
-SHOTGUN_URL = "https://your.studio.shotgrid"
+SHOTGUN_URL = "https://blackshipvfx.shotgrid.autodesk.com"
 # retrieve the current status icons from shotgrid
 STATUS_PNG_URL = f"{SHOTGUN_URL}/images/sg_icon_image_map.png"
 # Below can vary depending on studio structure. If the default is blocked follow below instructions
@@ -121,7 +121,7 @@ SG_ENTITY_FIELD_SYNC = {
 # Optional - Add API key string below if using API key connection. Note: enabling this approach will override above
 # authentication globals. WARNING you will need to customize this codebase as it is built with the tk-core web login
 # with authenticating users permission restrictions in mind.
-SHOTGUN_API_KEY = None
+SHOTGUN_API_KEY = "Ifzcp3xlaxgnansv!ugjqhqlx"
 
 # ---
 # __CUSTOMIZE__ Mixed OS path mapping
@@ -136,14 +136,19 @@ SHOTGUN_API_KEY = None
 #                      "Linux": ["/mnt/media/v", "/mnt/media/z"],
 #                      "Darwin": ["/media/v", "/media/z"] # OSX
 #                      }
-SG_MEDIA_PATH_MAP = {}
+SG_MEDIA_PATH_MAP = {
+    "Windows":["v:"],
+    "Linux": ["/mnt"],
+    "Darwin": ["/Volumes"] # OSX
+}
 
 # ---
 # __CUSTOMIZE__ Globals to set correct localization directory
 # ---
 # To avoid repeated "choose localization directory" dialogs un comment below with desired path
-# os.environ["SG_LOCALIZE_DIR"] = ""
 # Desired path can be driven by environment variable
+if not os.environ.get("SG_LOCALIZE_DIR"):
+    os.environ["SG_LOCALIZE_DIR"] = os.path.expanduser("~/Documents/NukeTimelineLoader")
 DEFAULT_LOCALIZE_DIR = os.environ.get("SG_LOCALIZE_DIR", None)
 # Mostly used internally to assess if the project requires Shotgrid/Flow tags to be created
 SG_TAGS_CREATED = os.environ.get("SG_TAGS_CREATED", False)

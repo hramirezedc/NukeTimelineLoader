@@ -112,13 +112,13 @@ def instance_handler():
     """Handles authentication and SG class instantiation prompting for Auth if session timed out
 
     Returns:
-        session, sg (object, object): wrapped shotgrid api object for use in direct Qt calls
+        sg (object): wrapped shotgrid api object for use in direct Qt calls
     """
     # Handle API key authentication if defined
     if SHOTGUN_API_KEY:
         sg = SGWrapper(
             SHOTGUN_URL,
-            script_name="api_user",
+            script_name="nuke_timeline_loader",
             api_key=SHOTGUN_API_KEY,
             sg_session_id=None,
             session_token=None,
@@ -129,6 +129,8 @@ def instance_handler():
     user = session_cache.get_current_user(SHOTGUN_URL)
     try:
         session_data = session_cache.get_session_data(SHOTGUN_URL, user)
+        if not session_data or "session_token" not in session_data:
+            raise Exception("No valid session data found")
         sg = SGWrapper(
             SHOTGUN_URL,
             sg_session_id=session_data["session_token"],
@@ -141,8 +143,13 @@ def instance_handler():
             print("Session Expired initializing SG login dialog")
 
             login_window = WebLoginDialog(True, hostname=SHOTGUN_URL)
+            login_window.exec_()
             # Result of successful login
             session = login_window.result()
+            if not session:
+                raise Exception(
+                    "Authentication failed: login dialog was cancelled or returned no session."
+                )
             user = session[1]
             session_cache.cache_session_data(SHOTGUN_URL, user, session[2])
             session_cache.set_current_user(SHOTGUN_URL, user)
@@ -164,7 +171,7 @@ def session_handler():
     if SHOTGUN_API_KEY:
         sg = SGWrapper(
             SHOTGUN_URL,
-            script_name="api_user",
+            script_name="nuke_timeline_loader",
             api_key=SHOTGUN_API_KEY,
             sg_session_id=None,
             session_token=None,
@@ -176,6 +183,8 @@ def session_handler():
     user = session_cache.get_current_user(SHOTGUN_URL)
     try:
         session_data = session_cache.get_session_data(SHOTGUN_URL, user)
+        if not session_data or "session_token" not in session_data:
+            raise Exception("No valid session data found")
         sg = SGWrapper(
             SHOTGUN_URL,
             sg_session_id=session_data["session_token"],
@@ -189,8 +198,13 @@ def session_handler():
             print("Session Expired initializing SG login dialog")
 
             login_window = WebLoginDialog(True, hostname=SHOTGUN_URL)
+            login_window.exec_()
             # Result of successful login
             session = login_window.result()
+            if not session:
+                raise Exception(
+                    "Authentication failed: login dialog was cancelled or returned no session."
+                )
             user = session[1]
             session_cache.cache_session_data(SHOTGUN_URL, user, session[2])
             session_cache.set_current_user(SHOTGUN_URL, user)
@@ -260,6 +274,28 @@ def access_token(session_token):
         raise Exception("Failed to retrieve Auth token")
 
 
+def get_sg_data(entity, sg, id=None, fields=True):
+    """SG query using API token
+
+    Args:
+        entity (str): Name of SG entity to query
+        id (int, optional): specific sg id to query. Defaults to None.
+        fields (bool, optional): when True return all applicable fields.
+                                Defaults to True.
+
+    Raises:
+        Exception: Fails to find applicable data will raise
+
+    Returns:
+        dict: dict of json response data relating to query
+    """
+    if not fields:
+        params = []
+    else:
+        params = list(sg.schema_field_read(entity)) + ["url"]
+
+    return sg.find(entity, [], params)
+
 def get_rest_data(access_token, entity, sg, id=None, fields=True):
     """Rest based SG query
 
@@ -321,6 +357,38 @@ def fetch_css(url):
         raise Exception(f"Failed to fetch CSS. Status code: {response.status_code}")
 
 
+def _get_status_code(stat):
+    """Helper to extract status code from either REST or SG API format.
+
+    Args:
+        stat (dict): Status entity in REST format (attributes/relationships)
+                     or SG Python API format (flat dict)
+
+    Returns:
+        str: The status code (e.g. 'ip', 'fin', 'wtg')
+    """
+    if "attributes" in stat:
+        return stat["attributes"]["code"]
+    return stat.get("code", "")
+
+
+def _get_status_display_name(stat):
+    """Helper to extract display name from either REST or SG API format."""
+    if "attributes" in stat:
+        return stat["attributes"].get("cached_display_name", "")
+    return stat.get("cached_display_name", "")
+
+
+def _get_status_icon_name(stat):
+    """Helper to extract icon name from either REST or SG API format.
+    Falls back to status code when relationships data is not available.
+    """
+    try:
+        return stat["relationships"]["icon"]["data"]["name"]
+    except (KeyError, TypeError):
+        return stat.get("code", "")
+
+
 def extract_css_info(css, png_url, sg_statuses):
     """Parse collected CSS file for icon information. SG uses a single png to drive all icons this will
     cut this png into usable icons
@@ -340,20 +408,22 @@ def extract_css_info(css, png_url, sg_statuses):
     for match in matches:
         if png_file in match.group(0):
             for stat in sg_statuses:
-                if stat["relationships"]["icon"]["data"]["name"] in match.group(0):
+                icon_name = _get_status_icon_name(stat)
+                status_code = _get_status_code(stat)
+                if icon_name and icon_name in match.group(0):
                     icons_info.append(
                         {
-                            "icon_name": stat["attributes"]["code"],
+                            "icon_name": status_code,
                             "width": int(match.group(2)),
                             "height": int(match.group(3)),
                             "x_offset": int(match.group(4)),
                             "y_offset": int(match.group(5)),
                         }
                     )
-                if stat["attributes"]["code"] == match.group(1):
+                if status_code == match.group(1):
                     icons_info.append(
                         {
-                            "icon_name": stat["attributes"]["code"],
+                            "icon_name": status_code,
                             "width": int(match.group(2)),
                             "height": int(match.group(3)),
                             "x_offset": int(match.group(4)),
@@ -456,14 +526,17 @@ def setup_sg_tags(sg, session_token, localize_path):
     Returns:
         (list): of dict pertaining to the currently setup tags for later use in Foundry manifest Base entity
     """
-    token = access_token(session_token)
-    sg_statuses = get_rest_data(token, "Status", sg, fields=True)
+    if SHOTGUN_API_KEY:
+        sg_statuses = get_sg_data("Status", sg, fields=True)
+    else:
+        token = access_token(session_token)
+        sg_statuses = get_rest_data(token, "Status", sg, fields=True)
     tag_data = create_icons(STATUS_PNG_URL, STATUS_CSS_URL, localize_path, sg_statuses)
     tag_data = {tuple(sorted(d.items())): d for d in tag_data}
     for icon in list(tag_data.values()):
         for stat in sg_statuses:
-            if icon["name"] == stat["attributes"]["code"]:
-                icon["lname"] = stat["attributes"]["cached_display_name"]
+            if icon["name"] == _get_status_code(stat):
+                icon["lname"] = _get_status_display_name(stat)
 
     return list(tag_data.values())
 

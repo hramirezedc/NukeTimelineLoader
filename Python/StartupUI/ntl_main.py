@@ -46,22 +46,39 @@ def after_project_load(event):
     """This sets up NT loader for the new project by hooking into the callback
     "kAfterNewProjectCreated"
 
+    BLACKSHIP OVERRIDE:
+        Into the callback "kAfterProjectLoad" instead.
+
+        With ayon, there is a Project called 'Tag Presets'
+        which is loaded first, then when we open/create a project,
+        'Tag Presets' is updated as a Startup Project.
+        Because of that the kAfterProjectLoad event is called multiple times.
+        That's why we added a condition for that callback happens after the
+        Tag Presets setup.
+
     Args:
         event (object): Hiero callback event object . Unused in this function
     """
+    # BLACKSHIP OVERRIDE
+    projects = hiero.core.projects(hiero.core.Project.kStartupProjects)
+    if not projects:
+        return
+
     loading_dialog = LoadingDialog("Initializing\nNuke Timeline Loader")
     loading_dialog.show()
 
     def on_load():
-        session_token, sg = nt_loader.fn_sg_func.session_handler()
-        widget = ShotgridLoaderWidget(sg, session_token, SCHEMA_MAP)
-        # widget.show()
-        wm = hiero.ui.windowManager()
-        wm.addWindow(widget)
-        loading_dialog.close()
+        try:
+            session_token, sg = nt_loader.fn_sg_func.session_handler()
+            widget = ShotgridLoaderWidget(sg, session_token, SCHEMA_MAP)
+            # widget.show()
+            wm = hiero.ui.windowManager()
+            wm.addWindow(widget)
+        finally:
+            loading_dialog.close()
 
     QTimer.singleShot(3000, on_load)
 
 
 # Register the NTL after_project_load function to be triggered on hiero callback
-hiero.core.events.registerInterest("kAfterNewProjectCreated", after_project_load)
+hiero.core.events.registerInterest("kAfterProjectLoad", after_project_load)

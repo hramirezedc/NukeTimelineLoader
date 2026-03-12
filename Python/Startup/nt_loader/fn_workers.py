@@ -124,27 +124,52 @@ class SGDownloadWorker(QRunnable):
         self.url = sg_url
         self.download_file_path = download_file_path
 
+    def _download_via_requests(self):
+        """Fallback download using requests when SG API download_attachment fails."""
+        response = requests.get(self.url, stream=True, verify=False)
+        response.raise_for_status()
+        os.makedirs(os.path.dirname(self.download_file_path), exist_ok=True)
+        with open(self.download_file_path, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+
     def run(self):
         sg_instance = self.sg_instance_pool.get_sg_instance()
+        download_success = False
 
         try:
             attachment = {"url": self.url}
             result = sg_instance.download_attachment(
                 attachment, self.download_file_path
             )
-            if not result:
-                raise Exception("unable to download {}".format(self.url))
-        except:
-            traceback_info = sys.exc_info()
-            exctype, value, tb = traceback_info
-            while tb.tb_next:
-                tb = tb.tb_next
-            func_name = tb.tb_frame.f_code.co_name
-            line_no = tb.tb_lineno
+            # Verify the file was actually written (not 0 bytes)
+            if not result or not os.path.exists(self.download_file_path) or os.path.getsize(self.download_file_path) == 0:
+                raise Exception("SG API download returned empty file")
+            download_success = True
+        except Exception as sg_error:
+            # SG API download failed — try direct requests fallback
             UPDATE_SIGNALS.details_text.emit(
-                True,
-                f"SGDownloadWorker Error in function {func_name} at line {line_no}: {str(value)}",
+                False,
+                f"SG API download failed, trying direct download...",
             )
+            try:
+                self._download_via_requests()
+                if os.path.exists(self.download_file_path) and os.path.getsize(self.download_file_path) > 0:
+                    download_success = True
+                else:
+                    raise Exception("Direct download produced empty file")
+            except:
+                traceback_info = sys.exc_info()
+                exctype, value, tb = traceback_info
+                while tb.tb_next:
+                    tb = tb.tb_next
+                func_name = tb.tb_frame.f_code.co_name
+                line_no = tb.tb_lineno
+                UPDATE_SIGNALS.details_text.emit(
+                    True,
+                    f"SGDownloadWorker Error in function {func_name} at line {line_no}: {str(value)}",
+                )
         finally:
             self.sg_instance_pool.release_sg_instance(sg_instance)
             self.signals.finished.emit(self.download_file_path)

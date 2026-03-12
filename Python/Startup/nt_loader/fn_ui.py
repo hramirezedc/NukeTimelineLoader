@@ -666,8 +666,14 @@ class FilterSearchWidget(QWidget):
         container_layout.setContentsMargins(0, 0, 0, 0)
 
         self.options_button = QPushButton()
+        try:
+            # Qt6 / PySide6 scoped enum
+            _sp_icon = self.style().StandardPixmap.SP_FileDialogContentsView
+        except AttributeError:
+            # Qt5 / PySide2 flat enum
+            _sp_icon = self.style().SP_FileDialogContentsView
         self.options_button.setIcon(
-            self.style().standardIcon(self.style().SP_FileDialogContentsView)
+            self.style().standardIcon(_sp_icon)
         )
         self.options_button.setStyleSheet("border:none")
         self.options_button.setFixedSize(QSize(30, 30))
@@ -711,8 +717,14 @@ class FilterSearchWidget(QWidget):
 
         self.search_button = QPushButton()
         self.search_button.setStyleSheet("border:none")
+        try:
+            # Qt6 / PySide6 scoped enum
+            _sp_arrow = self.style().StandardPixmap.SP_ArrowRight
+        except AttributeError:
+            # Qt5 / PySide2 flat enum
+            _sp_arrow = self.style().SP_ArrowRight
         self.search_button.setIcon(
-            self.style().standardIcon(self.style().SP_ArrowRight)
+            self.style().standardIcon(_sp_arrow)
         )
         self.search_button.setFixedSize(QSize(30, 30))
         self.search_button.hide()
