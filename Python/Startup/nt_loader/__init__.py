@@ -129,6 +129,7 @@ _REQUIRED_PACKAGES = {
     "requests": "requests",
     "PIL": "pillow",
     "fileseq": "fileseq",
+    "qtpy": "qtpy",
     "tank_vendor": "git+https://github.com/shotgunsoftware/tk-core.git@v0.21.7",
 }
 
