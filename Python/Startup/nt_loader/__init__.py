@@ -6,7 +6,6 @@ before the rest of the package is imported. This handles environments like
 Hiero/Nuke 17+ where the bundled Python may not include these packages.
 """
 
-import subprocess
 import sys
 import os
 
@@ -45,20 +44,24 @@ def _ensure_dependencies():
 
     print(f"[NukeTimelineLoader] Installing missing dependencies: {missing}")
     try:
-        subprocess.check_call(
-            [
-                sys.executable, "-m", "pip", "install",
-                "--target", target,
-                "--upgrade",
-            ]
-            + missing,
-            timeout=120,
-        )
-        print("[NukeTimelineLoader] Dependencies installed successfully.")
+        # Use pip._internal instead of subprocess because in Nuke/Hiero 17+
+        # sys.executable points to the Nuke binary (not a Python interpreter),
+        # which causes SIGSEGV when invoked with "-m pip".
+        from pip._internal.cli.main import main as pip_main
+        pip_args = ["install", "--target", target, "--upgrade"] + missing
+        exit_code = pip_main(pip_args)
+        if exit_code == 0:
+            print("[NukeTimelineLoader] Dependencies installed successfully.")
+            # Refresh sys.path so newly installed packages are importable
+            import importlib
+            importlib.invalidate_caches()
+        else:
+            raise RuntimeError(f"pip exited with code {exit_code}")
     except Exception as exc:
         print(
             f"[NukeTimelineLoader] WARNING: Could not auto-install dependencies: {exc}\n"
-            f"  Please install manually: pip install {' '.join(missing)}\n"
+            f"  Please install manually by running in a terminal:\n"
+            f"    pip3 install --target \"{target}\" {' '.join(missing)}\n"
             f"  Or use ntl_pip_dependency_installer.py"
         )
 
